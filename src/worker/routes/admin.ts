@@ -10,7 +10,7 @@ import { installFor, toAnnouncement, toChannel, toMonitor, toPage, toSystem, typ
 import { liveSystems } from "../beszel/live";
 import { overlay, type HubView } from "../hub";
 import { hub, hubReload, hubView } from "../hub-client";
-import { runCheck, utcDay, type MonitorRow } from "../monitors/engine";
+import { latestPve, runCheck, utcDay, type MonitorRow } from "../monitors/engine";
 import { uptime24h, type DailyCounts } from "../monitors/uptime";
 import { toMaintenance, type MaintenanceRow } from "../monitors/maintenance";
 import { nextState } from "../monitors/state";
@@ -306,6 +306,12 @@ admin.get("/systems/:id/:table{stats|containers}", async (c) => {
 	return c.json(await agentStub(c.env, c.req.param("id")).stats(kind, type, Date.now() - span));
 });
 
+// Latest richter-pve snapshot (Proxmox hosts only; null when the companion never pushed).
+admin.get("/systems/:id/pve", async (c) => {
+	await must(getSystemRow(c.env, c.req.param("id")), "System not found");
+	return c.json(await latestPve(c.env, c.req.param("id")));
+});
+
 admin.get("/systems/:id/packages", async (c) => {
 	const r = await c.env.DB.prepare("SELECT manager, checked_at, security_known, packages, updated_at FROM system_packages WHERE system_id = ?")
 		.bind(c.req.param("id"))
@@ -421,7 +427,7 @@ admin.put("/systems/:id/alerts", async (c) => {
 
 const monitorSchema = z.object({
 	name: z.string().min(1).max(100),
-	type: z.enum(["http", "tcp", "dns", "heartbeat", "domain", "system", "container", "group"]),
+	type: z.enum(["http", "tcp", "dns", "heartbeat", "domain", "system", "container", "guest", "group"]),
 	config: z.record(z.string(), z.unknown()).optional(),
 	parent_id: z.string().nullable().optional(),
 	interval_s: z.number().int().min(60).max(86400).optional(),
@@ -476,6 +482,22 @@ function validateConfig(type: string, cfg: Record<string, unknown>): Record<stri
 			req("system_id");
 			req("container_name");
 			break;
+		case "guest": {
+			req("system_id");
+			req("vmid");
+			cfg.vmid = Number(cfg.vmid);
+			if (!(Number.isInteger(cfg.vmid) && (cfg.vmid as number) > 0)) throw new HttpError(400, "config.vmid must be a positive integer", "config.vmid");
+			if (cfg.guest_type !== "lxc" && cfg.guest_type !== "qemu") throw new HttpError(400, "config.guest_type must be lxc or qemu", "config.guest_type");
+			for (const k of ["mem_warn", "disk_warn"]) {
+				if (cfg[k] == null || cfg[k] === "") {
+					delete cfg[k];
+					continue;
+				}
+				cfg[k] = Number(cfg[k]);
+				if (!((cfg[k] as number) > 0 && (cfg[k] as number) <= 100)) throw new HttpError(400, `config.${k} must be 1-100`, `config.${k}`);
+			}
+			break;
+		}
 	}
 	return cfg;
 }

@@ -1,6 +1,7 @@
-import type { ContainerMonitorConfig, DnsConfig, DomainConfig, HeartbeatConfig, HttpConfig, MonitorStatus, MonitorType, SystemMonitorConfig, TcpConfig } from "../../shared/types";
+import type { ContainerMonitorConfig, GuestMonitorConfig, PveSnapshot, DnsConfig, DomainConfig, HeartbeatConfig, HttpConfig, MonitorStatus, MonitorType, SystemMonitorConfig, TcpConfig } from "../../shared/types";
 import { parseJson } from "../db";
 import type { Env } from "../env";
+import { checkGuest } from "../beszel/pve";
 import { checkDns, checkDomain, checkHttp, checkTcp, type CheckResult } from "./checks";
 
 export interface MonitorRow {
@@ -45,6 +46,18 @@ export function utcDay(ts: number): string {
 export interface CheckDeps {
 	system?: (id: string) => { status: string; name: string } | null | undefined;
 	containers?: (systemId: string) => Promise<{ created_at: number; stats: string } | null>;
+	pve?: (systemId: string) => Promise<PveSnapshot | null>;
+}
+
+/** Latest richter-pve snapshot of a Proxmox host, kept in the system's AgentConnection Durable Object. */
+export async function latestPve(env: Env, systemId: string): Promise<PveSnapshot | null> {
+	if (!systemId) return null;
+	try {
+		return await env.AGENT.get(env.AGENT.idFromName(systemId)).pveSnapshot();
+	} catch (e) {
+		console.error("latestPve failed", (e as Error).message);
+		return null;
+	}
 }
 
 /** Latest 1m container snapshot, kept in the system's AgentConnection Durable Object. */
@@ -106,6 +119,10 @@ export async function runCheck(
 			if (c.h === 3) return { ok: false, latency_ms: null, message: `Unhealthy (${c.s ?? ""})` };
 			return { ok: true, latency_ms: null, message: c.s ?? "running" };
 		}
+		case "guest": {
+			const cfg = parseJson<GuestMonitorConfig>(m.config, { system_id: "", vmid: 0, guest_type: "lxc" });
+			return checkGuest(cfg, await (deps.pve ?? ((id: string) => latestPve(env, id)))(cfg.system_id), now);
+		}
 		case "group":
 			return null; // computed from children in evaluateGroups
 	}
@@ -120,7 +137,7 @@ export function formatDuration(ms: number): string {
 }
 
 export function systemOf(m: Pick<MonitorRow, "type" | "config">): string | null {
-	if (m.type !== "system" && m.type !== "container") return null;
+	if (m.type !== "system" && m.type !== "container" && m.type !== "guest") return null;
 	return parseJson<{ system_id?: string }>(m.config, {}).system_id ?? null;
 }
 

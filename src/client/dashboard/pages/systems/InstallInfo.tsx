@@ -31,6 +31,18 @@ const BINARY: Option[] = [
 		),
 	},
 	{
+		id: "proxmox",
+		label: "Proxmox VE node",
+		icons: [TuxIcon],
+		hint: (
+			<>
+				Paste into a <strong>root</strong> shell on the Proxmox host (no <C>sudo</C> needed). Installs the Linux agent for the host itself, plus the <C>richter-pve</C> timer that
+				pushes this node's LXC containers and VMs every minute. Richter then creates a monitor per guest, grouped under this system; guests not set to start on boot are added
+				paused. Safe to re-run; remove with <C>richter-pve uninstall</C>.
+			</>
+		),
+	},
+	{
 		id: "brew",
 		label: "Homebrew command",
 		icons: [AppleIcon, TuxIcon],

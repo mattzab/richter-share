@@ -1,4 +1,4 @@
-import type { ContainerPoint, StatsPoint, StatsRange, SystemInstall, SystemRecord, SystemStats } from "@shared/types";
+import type { ContainerPoint, PveSnapshot, StatsPoint, StatsRange, SystemInstall, SystemRecord, SystemStats } from "@shared/types";
 import {
 	ArrowLeft,
 	Bell,
@@ -12,6 +12,7 @@ import {
 	SquareTerminal,
 	Fingerprint,
 	KeyRound,
+	Layers,
 	MemoryStick,
 	MoreHorizontal,
 	Pause,
@@ -54,6 +55,7 @@ import { CHART_COLORS } from "@/lib/status";
 import { splitList } from "@/lib/utils";
 import { AlertsDialog } from "./AlertsDialog";
 import { InstallInfo } from "./InstallInfo";
+import { ProxmoxGuests } from "./ProxmoxGuests";
 import { Packages, Services, scrollTo, UpdateChips } from "./SystemUpdates";
 import { useCanEdit } from "@/dashboard/role";
 
@@ -67,13 +69,14 @@ const RANGES: { value: StatsRange; label: string }[] = [
 
 /** Beszel's system page layouts: everything on one page, or grouped into tabs. */
 type DisplayMode = "default" | "tabs";
-type SystemTab = "core" | "network" | "disk" | "gpu" | "containers" | "services" | "updates";
+type SystemTab = "core" | "network" | "disk" | "gpu" | "containers" | "guests" | "services" | "updates";
 const TAB_META: Record<SystemTab, { label: string; Icon: React.ComponentType<{ className?: string }> }> = {
 	core: { label: "Core", Icon: Cpu },
 	network: { label: "Network", Icon: Network },
 	disk: { label: "Disk", Icon: HardDrive },
 	gpu: { label: "GPU", Icon: Gpu },
 	containers: { label: "Containers", Icon: Box },
+	guests: { label: "Guests", Icon: Layers },
 	services: { label: "Services", Icon: SquareTerminal },
 	updates: { label: "Updates", Icon: Package },
 };
@@ -102,6 +105,7 @@ export function SystemDetail({ id }: { id: string }) {
 	const refresh = range === "1h" ? 60_000 : 300_000;
 	const stats = useApi<StatsPoint[]>(`/api/admin/systems/${id}/stats?range=${range}`, { refreshMs: refresh });
 	const containers = useApi<ContainerPoint[]>(`/api/admin/systems/${id}/containers?range=${range}`, { refreshMs: refresh });
+	const pve = useApi<PveSnapshot | null>(`/api/admin/systems/${id}/pve`, { refreshMs: 60_000 });
 	const [alertsOpen, setAlertsOpen] = useState(false);
 	const [install, setInstall] = useState<SystemInstall>();
 	const [editing, setEditing] = useState(false);
@@ -272,6 +276,8 @@ export function SystemDetail({ id }: { id: string }) {
 	const tabs: SystemTab[] = ["core", "network", "disk"];
 	if (hasGpu) tabs.push("gpu");
 	if (hasContainers) tabs.push("containers");
+	const hasGuests = !!pve.data;
+	if (hasGuests) tabs.push("guests");
 	if (hasServices) tabs.push("services");
 	if (hasUpdates) tabs.push("updates");
 	const tab: SystemTab = tabs.includes(activeTab) ? activeTab : "core";
@@ -614,6 +620,11 @@ export function SystemDetail({ id }: { id: string }) {
 							<Containers data={containers.data ?? []} xFormat={xFormat} />
 						</TabsContent>
 					)}
+					{hasGuests && (
+						<TabsContent value="guests" className="[&>section]:mt-0">
+							<ProxmoxGuests snap={pve.data} />
+						</TabsContent>
+					)}
 					{hasServices && s && (
 						<TabsContent value="services" className="[&>section]:mt-0">
 							<Services systemId={s.id} info={s.info} />
@@ -647,6 +658,8 @@ export function SystemDetail({ id }: { id: string }) {
 					)}
 
 					<Containers data={containers.data ?? []} xFormat={xFormat} />
+
+					<ProxmoxGuests snap={pve.data} />
 
 					{s && <Packages systemId={s.id} info={s.info} />}
 					{s && <Services systemId={s.id} info={s.info} />}

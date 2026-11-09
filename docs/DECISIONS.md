@@ -33,6 +33,29 @@ Protocol facts confirmed against `henrygd/beszel` at commit `5750cea` (v0.21.1):
 
 **Verified on 2026-10-29:** the stock `henrygd/beszel-agent:latest` (0.21.1) connected to the Richter Durable Object, passed the signature check, bound its fingerprint, and streamed CPU, memory, disk, temperatures, per-core CPU, network interfaces, and Docker containers.
 
+## Proxmox guests: a companion script, not a forked agent
+
+The stock beszel-agent sees only the machine it runs on, plus Docker/Podman containers. It has no Proxmox integration, so on a Proxmox VE host it never lists LXC containers or VMs. Richter gets them from `richter-pve` (`pve/richter-pve.sh`), a small script that a systemd timer runs every minute on each node. It reads `pvesh get /cluster/resources` and each guest's `onboot` flag, then POSTs them to `/api/pve/push`, authenticated with the system's agent token. Richter keeps the latest snapshot in the system's Durable Object and creates one `guest` monitor per guest under a per-host group.
+
+Hypervisors, VMs and LXC containers get different checks because each has a different source of truth:
+
+| | Where the data comes from | What Richter checks |
+| --- | --- | --- |
+| Proxmox host | beszel-agent on the host (temps, real disks, ZFS ARC) | the usual system alerts |
+| LXC container | the host, through richter-pve | running if set to start on boot; memory against its own limit; rootfs usage |
+| VM | the host, through richter-pve; optionally an agent inside the VM | running if set to start on boot; memory as the host sees it; disk only with the QEMU guest agent, because Proxmox reports 0 without it |
+
+An agent inside an LXC container is usually redundant. It reports the host's kernel and temperatures, and the host's memory unless `USE_CGROUP=true` is set. Install one only in a container that runs Docker or systemd services worth watching.
+
+**Why not fork beszel-agent?** A fork that collects guests and sends them over the existing WebSocket would be one install instead of two. It was turned down for these reasons:
+
+- **Upkeep.** Beszel releases often (0.18 to 0.21 in a few months). Every release would have to be rebased and rebuilt.
+- **Auto-update.** The agent's daily auto-update installs the upstream binary and would silently replace the fork. Keeping the fork would mean running our own release channel or turning auto-update off on every host.
+- **Compatibility.** Richter is built as a hub for the unmodified agent (see above). A fork breaks that promise for the hosts that matter most.
+- **Size.** The companion is about 80 lines of bash with no build step. It reads Proxmox state as root through Proxmox's own CLI and changes nothing on the host.
+
+The Richter side does not depend on the script. `AgentConnection.pveIngest` takes a normalized snapshot, so guest data from a future agent, whether a fork or an upstream Proxmox feature, can feed the same monitors over the WebSocket, and the script can then be retired.
+
 ## Uptime Kuma features worth taking
 
 These are Kuma's most-used features that neither FlareWatch nor Beszel already covers, ranked by value for effort:

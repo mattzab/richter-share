@@ -4,7 +4,8 @@ import type { Env } from "../env";
 import { evaluateSystemAlerts, type PendingStatusAlert, sendPendingStatusAlert, systemStatusChanged } from "./alerts";
 import { getHubKey, signToken } from "./keys";
 import { RETENTION_1M, rollupContainers, rollupStats, TIERS } from "./rollup";
-import type { ContainerStat, PackageUpdate, SystemdService, SystemInfo, SystemStats } from "../../shared/types";
+import type { ContainerStat, PackageUpdate, PveSnapshot, SystemdService, SystemInfo, SystemStats } from "../../shared/types";
+import { discoverGuests, guestKey } from "./pve";
 import { dashboardTemp, decodeResponse, fingerprintRequest, getDataRequest, type NormalizedPackages, normalizeCombinedData, normalizePackageUpdates, packageUpdatesRequest } from "./protocol";
 import { type AlertRow, evaluatePackageAlerts, evaluateSystemdAlerts, hash, UPDATE_METRICS } from "./update-alerts";
 
@@ -115,6 +116,7 @@ export class AgentConnection extends DurableObject<Env> {
 	private lastId = 0;
 	private hotV: Hot | null = null;
 	private tiersV = new Map<string, Rec[]>();
+	private pveV: PveSnapshot | null = null;
 
 	/** Request ids only need to be unique per connection: time-based, no storage write. */
 	private nextId(): number {
@@ -570,6 +572,32 @@ export class AgentConnection extends DurableObject<Env> {
 		return last ? { created_at: last[0], stats: JSON.stringify(last[1]) } : null;
 	}
 
+	/**
+	 * A richter-pve push (Proxmox host): keep the latest snapshot (one storage write per push) and
+	 * create monitors for guests seen for the first time. D1 is only touched when the guest set changes.
+	 */
+	async pveIngest(systemId: string, systemName: string, snap: PveSnapshot): Promise<{ guests: number; created: number }> {
+		const st = this.ctx.storage;
+		this.pveV = snap;
+		const key = guestKey(snap);
+		const got = await st.get(["pveKey", "systemId"]);
+		if (got.get("pveKey") === key) {
+			await st.put("pve", snap);
+			return { guests: snap.guests.length, created: 0 };
+		}
+		await st.put({ pve: snap, ...(got.get("systemId") !== systemId ? { systemId } : {}) });
+		// If discovery fails, pveKey stays stale and the next push retries it.
+		const created = await discoverGuests(this.env, systemId, systemName, snap);
+		await st.put("pveKey", key);
+		return { guests: snap.guests.length, created };
+	}
+
+	/** Latest richter-pve snapshot, or null if this system never pushed one. */
+	async pveSnapshot(): Promise<PveSnapshot | null> {
+		this.pveV ??= (await this.ctx.storage.get<PveSnapshot>("pve")) ?? null;
+		return this.pveV;
+	}
+
 	/** Live info and last_seen, fresher than the D1 systems row. */
 	async live(): Promise<{ info: SystemInfo | null; last_seen: number | null }> {
 		const att = await this.liveAtt();
@@ -588,6 +616,7 @@ export class AgentConnection extends DurableObject<Env> {
 		await this.ctx.storage.deleteAlarm();
 		await this.ctx.storage.deleteAll();
 		this.hotV = null;
+		this.pveV = null;
 		this.tiersV.clear();
 	}
 

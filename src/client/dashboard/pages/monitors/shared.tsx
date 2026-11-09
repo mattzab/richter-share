@@ -1,4 +1,4 @@
-import type { CheckPoint, ContainerMonitorConfig, DnsConfig, DomainConfig, HeartbeatConfig, HttpConfig, Monitor, SystemMonitorConfig, TcpConfig } from "@shared/types";
+import type { CheckPoint, ContainerMonitorConfig, GuestMonitorConfig, DnsConfig, DomainConfig, HeartbeatConfig, HttpConfig, Monitor, SystemMonitorConfig, TcpConfig } from "@shared/types";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatDateTime, formatDuration, formatMs } from "@/lib/format";
 import { CHECK_STATUS } from "@/lib/status";
@@ -30,6 +30,10 @@ export function monitorTarget(m: Pick<Monitor, "type" | "config">, systemName?: 
 		case "container": {
 			const c = m.config as ContainerMonitorConfig;
 			return `${c.container_name} on ${systemName?.(c.system_id) ?? c.system_id}`;
+		}
+		case "guest": {
+			const c = m.config as GuestMonitorConfig;
+			return `${c.guest_type === "lxc" ? "LXC" : "VM"} ${c.vmid} on ${systemName?.(c.system_id) ?? c.system_id}`;
 		}
 		case "group":
 			return "group";

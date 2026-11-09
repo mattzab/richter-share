@@ -14,6 +14,8 @@ Types live in `src/shared/types.ts`. All JSON. Errors are `{ "error": string, "f
 | GET | `/embed/:monitorId?theme=dark` | HTML card |
 | ANY | `/ping/:token[/start\|/fail\|/:code]` | `{ ok: true }` (heartbeat) |
 | GET (ws) | `/api/beszel/agent-connect` | Beszel agent WebSocket |
+| POST | `/api/pve/push` | richter-pve push (`Authorization: Bearer <system token>`, body `{ node, version?, resources, onboot }`): `{ ok, guests, created }` |
+| GET | `/pve/richter-pve.sh` | The richter-pve companion script |
 
 Public SPA routes: `/` (the default page or the custom-domain page), `/s/:slug`.
 
@@ -35,6 +37,7 @@ Public SPA routes: `/` (the default page or the custom-domain page), `/s/:slug`.
 | POST | `/systems/:id/rotate-token` | | `SystemInstall` |
 | GET | `/systems/:id/stats?range=1h\|12h\|24h\|1w\|30d` | | `StatsPoint[]` (oldest first) |
 | GET | `/systems/:id/containers?range=…` | | `ContainerPoint[]` (oldest first) |
+| GET | `/systems/:id/pve` | | `PveSnapshot \| null` (latest richter-pve push) |
 | GET | `/systems/:id/alerts` | | `{ alerts: SystemAlert[], notification_ids: string[] }` |
 | PUT | `/systems/:id/alerts` | `{ alerts: SystemAlert[], notification_ids: string[] }` | same |
 | GET | `/monitors` | | `MonitorListItem[]` |

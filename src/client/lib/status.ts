@@ -73,6 +73,7 @@ export const MONITOR_TYPE_LABEL: Record<MonitorType, string> = {
 	domain: "Domain expiry",
 	system: "System",
 	container: "Container",
+	guest: "Proxmox guest",
 	group: "Group",
 };
 

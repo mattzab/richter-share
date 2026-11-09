@@ -6,6 +6,8 @@ import { overlay } from "../hub";
 import { hub } from "../hub-client";
 import { utcDay, type MonitorRow } from "../monitors/engine";
 import { CARD_H, CARD_W, cardPng, OVERALL_TEXT } from "../og/card";
+import { MAX_PUSH_BYTES, normalizePvePush } from "../beszel/pve";
+import PVE_SCRIPT from "../../../pve/richter-pve.sh?raw";
 
 /** Edge-cache generation for public JSON and OG images. */
 const CACHE_V = 2;
@@ -313,6 +315,30 @@ pub.all("/ping/:token/:action?", async (c) => {
 	// The Hub owns heartbeat state: one RPC, and D1 is only written when the status changes.
 	const r = await hub(c.env).ping(token, action, ok, message, latency);
 	return c.json(r.body, r.status);
+});
+
+// ---------------------------------------------------------------- Proxmox companion (richter-pve)
+
+pub.get("/pve/richter-pve.sh", (c) => c.body(PVE_SCRIPT, 200, { "content-type": "text/x-shellscript; charset=utf-8", "cache-control": "public, max-age=300" }));
+
+/** richter-pve push: the host's guest list, authenticated with the system's agent token. */
+pub.post("/api/pve/push", async (c) => {
+	const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+	if (!token || token.length > 64) return c.json({ ok: false, error: "missing token" }, 401);
+	const sys = await c.env.DB.prepare("SELECT id, name, status FROM systems WHERE token = ?").bind(token).first<{ id: string; name: string; status: string }>();
+	if (!sys) return c.json({ ok: false, error: "invalid token" }, 401);
+	if (sys.status === "paused") return c.json({ ok: true, paused: true });
+	if (Number(c.req.header("content-length") ?? 0) > MAX_PUSH_BYTES) return c.json({ ok: false, error: "payload too large" }, 413);
+	const text = await c.req.text();
+	if (text.length > MAX_PUSH_BYTES) return c.json({ ok: false, error: "payload too large" }, 413);
+	let snap;
+	try {
+		snap = normalizePvePush(JSON.parse(text));
+	} catch (e) {
+		return c.json({ ok: false, error: (e as Error).message }, 400);
+	}
+	const r = await c.env.AGENT.get(c.env.AGENT.idFromName(sys.id)).pveIngest(sys.id, sys.name, snap);
+	return c.json({ ok: true, ...r });
 });
 
 // ---------------------------------------------------------------- beszel agent

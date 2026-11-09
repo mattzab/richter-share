@@ -49,7 +49,7 @@ export function MonitorDetail({ id }: { id: string }) {
 		return r;
 	};
 
-	const passive = m?.type === "heartbeat" || m?.type === "system" || m?.type === "container";
+	const passive = m?.type === "heartbeat" || m?.type === "system" || m?.type === "container" || m?.type === "guest";
 	const cards: [string, React.ReactNode, string?][] = [
 		...(passive
 			? []

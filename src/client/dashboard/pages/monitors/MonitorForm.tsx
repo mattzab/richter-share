@@ -9,7 +9,7 @@ import type {
 	NotificationChannel,
 	SystemRecord,
 } from "@shared/types";
-import { Activity, ArrowLeft, Box, CalendarClock, FolderOpen, Globe, HeartPulse, Network, Server, Zap } from "lucide-react";
+import { Activity, ArrowLeft, Box, CalendarClock, FolderOpen, Globe, HeartPulse, Layers, Network, Server, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { admin, ApiError, errorMessage, request } from "@/api";
@@ -36,6 +36,8 @@ const TYPES: { type: MonitorType; label: string; description: string; icon: Reac
 	{ type: "domain", label: "Domain expiry", description: "RDAP expiration date", icon: CalendarClock },
 	{ type: "system", label: "System", description: "Mirror a Beszel system's status", icon: Server },
 	{ type: "container", label: "Container", description: "Docker container is running & healthy", icon: Box },
+	// Created automatically by richter-pve discovery; not offered in the type picker.
+	{ type: "guest", label: "Proxmox guest", description: "LXC container or VM on a Proxmox host", icon: Layers },
 	{ type: "group", label: "Group", description: "Worst status of its members", icon: FolderOpen },
 ];
 
@@ -85,6 +87,11 @@ interface FormState {
 	// system/container
 	system_id: string;
 	container_name: string;
+	// guest (Proxmox)
+	vmid: string;
+	guest_type: "lxc" | "qemu";
+	mem_warn: string;
+	disk_warn: string;
 }
 
 const EMPTY: FormState = {
@@ -123,6 +130,10 @@ const EMPTY: FormState = {
 	warn_days: 30,
 	system_id: "",
 	container_name: "",
+	vmid: "",
+	guest_type: "lxc",
+	mem_warn: "",
+	disk_warn: "",
 };
 
 function fromMonitor(m: Monitor): FormState {
@@ -167,6 +178,10 @@ function fromMonitor(m: Monitor): FormState {
 		warn_days: Number(c.warn_days ?? 30),
 		system_id: s("system_id"),
 		container_name: s("container_name"),
+		vmid: s("vmid"),
+		guest_type: c.guest_type === "qemu" ? "qemu" : "lxc",
+		mem_warn: s("mem_warn"),
+		disk_warn: s("disk_warn"),
 	};
 }
 
@@ -210,9 +225,14 @@ function validate(f: FormState): Errors {
 			if (!f.system_id) e.system_id = "Pick a system";
 			if (!f.container_name.trim()) e.container_name = "Required";
 			break;
+		case "guest":
+			if (!f.system_id) e.system_id = "Pick a system";
+			if (!(Number.isInteger(Number(f.vmid)) && Number(f.vmid) > 0)) e.vmid = "Enter the guest's VMID";
+			for (const k of ["mem_warn", "disk_warn"] as const) if (f[k] !== "" && !(Number(f[k]) > 0 && Number(f[k]) <= 100)) e[k] = "1-100, or empty for 90";
+			break;
 	}
-	if (f.type !== "group" && f.type !== "heartbeat" && f.type !== "system" && f.type !== "container" && !(f.interval_s >= 60 && Number.isInteger(f.interval_s))) e.interval_s = "Minimum is 60 seconds (cron runs every minute)";
-	if (!["heartbeat", "system", "container", "group"].includes(f.type) && !(f.retry_interval_s >= 60 && Number.isInteger(f.retry_interval_s))) e.retry_interval_s = "Minimum is 60 seconds";
+	if (f.type !== "group" && f.type !== "heartbeat" && f.type !== "system" && f.type !== "container" && f.type !== "guest" && !(f.interval_s >= 60 && Number.isInteger(f.interval_s))) e.interval_s = "Minimum is 60 seconds (cron runs every minute)";
+	if (!["heartbeat", "system", "container", "guest", "group"].includes(f.type) && !(f.retry_interval_s >= 60 && Number.isInteger(f.retry_interval_s))) e.retry_interval_s = "Minimum is 60 seconds";
 	return e;
 }
 
@@ -255,6 +275,15 @@ function toInput(f: FormState): MonitorInput {
 			break;
 		case "container":
 			config = { system_id: f.system_id, container_name: f.container_name.trim() };
+			break;
+		case "guest":
+			config = {
+				system_id: f.system_id,
+				vmid: Number(f.vmid),
+				guest_type: f.guest_type,
+				...(f.mem_warn !== "" ? { mem_warn: Number(f.mem_warn) } : {}),
+				...(f.disk_warn !== "" ? { disk_warn: Number(f.disk_warn) } : {}),
+			};
 			break;
 		default:
 			config = {};
@@ -368,7 +397,7 @@ export function MonitorForm({ id }: { id?: string }) {
 
 	const num = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => set(k, Number(e.target.value) as never);
 	const txt = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => set(k, e.target.value as never);
-	const passive = form.type === "heartbeat" || form.type === "system" || form.type === "container" || form.type === "group";
+	const passive = form.type === "heartbeat" || form.type === "system" || form.type === "container" || form.type === "guest" || form.type === "group";
 
 	return (
 		<form onSubmit={submit} className="mx-auto max-w-3xl">
@@ -382,7 +411,7 @@ export function MonitorForm({ id }: { id?: string }) {
 					<Card className="p-4">
 						<p className="mb-3 text-sm font-medium">Monitor type</p>
 						<div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-							{TYPES.map((t) => (
+							{TYPES.filter((t) => t.type !== "guest").map((t) => (
 								<button
 									key={t.type}
 									type="button"
@@ -504,6 +533,38 @@ export function MonitorForm({ id }: { id?: string }) {
 							</Field>
 							<Field label="Warn days before">
 								<Input type="number" min={1} value={form.warn_days} onChange={num("warn_days")} />
+							</Field>
+						</div>
+					)}
+
+					{form.type === "guest" && (
+						<div className="grid gap-4 sm:grid-cols-2">
+							<Field label="Proxmox host" error={errors.system_id} hint="Guest monitors are created automatically by richter-pve.">
+								<Select value={form.system_id} onChange={txt("system_id")}>
+									<option value="">Select a system…</option>
+									{systems.map((s) => (
+										<option key={s.id} value={s.id}>
+											{s.name}
+										</option>
+									))}
+								</Select>
+							</Field>
+							<div className="grid grid-cols-2 gap-4">
+								<Field label="VMID" error={errors.vmid}>
+									<Input type="number" min={1} value={form.vmid} onChange={txt("vmid")} />
+								</Field>
+								<Field label="Kind">
+									<Select value={form.guest_type} onChange={txt("guest_type")}>
+										<option value="lxc">LXC container</option>
+										<option value="qemu">VM</option>
+									</Select>
+								</Field>
+							</div>
+							<Field label="Memory warning %" error={errors.mem_warn} hint={form.guest_type === "lxc" ? "Of the container's own memory limit. Default 90." : "Of the VM's assigned memory, as the host sees it. Default 90."}>
+								<Input type="number" min={1} max={100} value={form.mem_warn} onChange={txt("mem_warn")} placeholder="90" />
+							</Field>
+							<Field label="Disk warning %" error={errors.disk_warn} hint={form.guest_type === "lxc" ? "Of the container's rootfs. Default 90." : "Only reported when the QEMU guest agent is running in the VM. Default 90."}>
+								<Input type="number" min={1} max={100} value={form.disk_warn} onChange={txt("disk_warn")} placeholder="90" />
 							</Field>
 						</div>
 					)}

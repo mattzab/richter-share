@@ -7,7 +7,7 @@ const KEY = "ssh-ed25519 AAAATESTKEY";
 
 describe("buildInstall", () => {
 	const inst = buildInstall(HUB, TOKEN, KEY);
-	const cmds = ["compose", "docker_run", "binary", "brew", "windows", "freebsd"] as const;
+	const cmds = ["compose", "docker_run", "binary", "brew", "windows", "freebsd", "proxmox"] as const;
 
 	it.each(cmds)("%s configures WebSocket-only mode", (k) => {
 		const c = inst[k];
@@ -26,6 +26,17 @@ describe("buildInstall", () => {
 		expect(c).toContain("</dev/tty");
 		expect(c).toContain("--auto-update=$au");
 		expect(c).toMatch(/\*\) au=true/);
+	});
+
+	it("proxmox command runs as root without sudo and installs richter-pve", () => {
+		const c = inst.proxmox;
+		expect(c).not.toContain("sudo");
+		expect(c).toContain("/etc/systemd/system/beszel-agent.service.d/richter.conf");
+		expect(c).toContain(`curl -fsSL ${HUB}/pve/richter-pve.sh -o /tmp/richter-pve.sh`);
+		expect(c).toContain(`bash /tmp/richter-pve.sh install "${HUB}" "${TOKEN}"`);
+		expect(c.startsWith("(set -e")).toBe(true);
+		expect(c.endsWith("rm -f /tmp/richter-pve.sh)")).toBe(true);
+		expect(c.match(/\)$/gm)?.length).toBe(1);
 	});
 
 	it("freebsd command runs under sh and rewrites the rc env file", () => {

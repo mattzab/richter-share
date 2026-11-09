@@ -5,7 +5,7 @@
 A serverless uptime and infrastructure monitor for self-hosted gear that runs entirely on Cloudflare (Workers, Durable Objects, D1 and Cron). No server of its own to keep up.
 
 - **Server metrics, Beszel-compatible.** Richter is a drop-in hub for the stock [`henrygd/beszel-agent`](https://github.com/henrygd/beszel): CPU, memory, disk, network, temperatures, Docker containers, systemd services and (with an agent that reports them) pending package and security updates.
-- **Uptime checks.** HTTP(S) with keyword or JSON-path matching, TCP, DNS, domain expiry (RDAP), heartbeat/push monitors (cron jobs, backups), container monitors, and groups. Retries, upside-down mode, latency limits, tags, pause/clone.
+- **Uptime checks.** HTTP(S) with keyword or JSON-path matching, TCP, DNS, domain expiry (RDAP), heartbeat/push monitors (cron jobs, backups), container monitors, auto-discovered Proxmox VE guests (LXC and VMs), and groups. Retries, upside-down mode, latency limits, tags, pause/clone.
 - **Public status pages.** As many as you like, each with its own slug or custom domain, groups, 90-day uptime bars, sparklines, incidents, maintenance windows and announcements, an Atom feed, badges, embeds and link previews. Per item you can hide the link to a site so its address never appears publicly.
 - **Alerts.** Discord, Slack, Telegram, ntfy, Gotify, Pushover and generic webhooks, with per-monitor routing, "still down" reminders and a send log.
 - **Dashboard behind Cloudflare Access**, with optional extra users (Full or Read-only) managed from Settings.
@@ -70,6 +70,18 @@ Workers can't do ICMP ping, raw TLS-expiry checks or port 25; see `docs/DECISION
 ## Add a server
 
 In the dashboard, open **Systems → Add system** and run the install command it shows (Linux, macOS/Homebrew, Windows, FreeBSD or Docker). The agent connects out to `wss://<publicHost>/api/beszel/agent-connect` with the `HUB_URL`, `TOKEN` and `KEY` it is given, so you don't need to open any ports. WebSocket mode only; Beszel's SSH mode isn't supported.
+
+## Proxmox VE hosts
+
+The stock agent sees only the machine it runs on, so on a Proxmox VE node pick **Proxmox VE node** in the install dialog and paste it into a root shell on the host. It installs the Linux agent for the host itself, plus `richter-pve`, a systemd timer that pushes the node's LXC containers and VMs (`pvesh get /cluster/resources` and each guest's `onboot`) to `https://<publicHost>/api/pve/push` every minute, authenticated with the system's token.
+
+Richter then creates a **Proxmox guest** monitor for every guest, under a "<system> guests" group, and shows a Guests table (plus storage usage) on the system page:
+
+- **LXC:** Down when stopped while set to start on boot; Degraded when memory or rootfs passes 90% of the container's own limit.
+- **VM:** Down when stopped while set to start on boot; Degraded on memory. Disk usage is only checked when the QEMU guest agent is running, because Proxmox reports 0 without it.
+- Guests that aren't set to start on boot are created paused. Templates are skipped. A guest that disappears keeps its monitor, which goes Down ("no longer on <node>"). Renames and threshold edits you make in the dashboard are kept.
+
+Rotating the system's token also stops the companion: re-run the install command afterwards. Remove the companion with `richter-pve uninstall`. Why this is a companion script and not a forked agent is explained in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Heartbeats
 

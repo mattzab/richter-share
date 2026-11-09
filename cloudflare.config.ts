@@ -46,7 +46,7 @@ export default defineConfig({
 		observability: { enabled: true },
 		assets: {
 			notFoundHandling: "single-page-application",
-			runWorkerFirst: ["/api/*", "/ping/*", "/feed.atom", "/badge/*", "/embed/*", "/metrics", "/healthz", "/", "/s/*", "/og.png", "/og/*"],
+			runWorkerFirst: ["/api/*", "/ping/*", "/feed.atom", "/badge/*", "/embed/*", "/metrics", "/healthz", "/", "/s/*", "/og.png", "/og/*", "/pve/*"],
 		},
 		domains: [cfg.dashboardHost, cfg.publicHost],
 		workersDev: false,

@@ -2,7 +2,7 @@
 
 export type SystemStatus = "pending" | "up" | "down" | "paused";
 export type MonitorStatus = "pending" | "up" | "degraded" | "down" | "maintenance" | "paused" | "running";
-export type MonitorType = "http" | "tcp" | "dns" | "heartbeat" | "domain" | "system" | "container" | "group";
+export type MonitorType = "http" | "tcp" | "dns" | "heartbeat" | "domain" | "system" | "container" | "guest" | "group";
 export type StatsRange = "1h" | "12h" | "24h" | "1w" | "30d";
 
 /** Normalized Beszel Info (latest snapshot, shown in the systems table). */
@@ -115,6 +115,8 @@ export interface SystemInstall {
 	brew: string;
 	windows: string;
 	freebsd: string;
+	/** Proxmox VE node (root): Linux agent plus the richter-pve guest companion. */
+	proxmox: string;
 }
 
 export interface StatsPoint {
@@ -177,6 +179,38 @@ export interface SystemAlert {
 	last_value?: number | null;
 }
 
+// ---- Proxmox VE (richter-pve companion) -------------------------------------
+
+export type GuestType = "lxc" | "qemu";
+/** One guest from the host's `pvesh get /cluster/resources`, plus its onboot flag. */
+export interface PveGuest {
+	vmid: number;
+	type: GuestType;
+	name: string;
+	node: string;
+	status: string; // running | stopped | paused | unknown
+	onboot: boolean;
+	template: boolean;
+	lock?: string; // backup, migrate, snapshot, ...
+	hastate?: string;
+	cpu?: number; // fraction of maxcpu, 0..1
+	maxcpu?: number;
+	mem?: number; // bytes
+	maxmem?: number;
+	disk?: number; // bytes (0 for VMs without the guest agent)
+	maxdisk?: number;
+	uptime?: number; // seconds
+}
+export interface PveStorage { storage: string; node: string; type?: string; status?: string; disk?: number; maxdisk?: number; shared?: boolean }
+/** Latest snapshot pushed by richter-pve; kept in the system's AgentConnection Durable Object. */
+export interface PveSnapshot {
+	at: number;
+	node: string;
+	pve_version?: string;
+	guests: PveGuest[];
+	storages: PveStorage[];
+}
+
 // ---- Monitors -------------------------------------------------------------
 
 export interface HttpConfig {
@@ -197,9 +231,19 @@ export interface HeartbeatConfig { period_s: number; grace_s: number }
 export interface DomainConfig { domain: string; warn_days?: number }
 export interface SystemMonitorConfig { system_id: string }
 export interface ContainerMonitorConfig { system_id: string; container_name: string }
+/** A Proxmox VE guest on a system that runs the richter-pve companion (auto-created, see beszel/pve.ts). */
+export interface GuestMonitorConfig {
+	system_id: string;
+	vmid: number;
+	guest_type: GuestType;
+	/** Percent of the guest's own memory limit that marks it Degraded (default 90). */
+	mem_warn?: number;
+	/** Percent of the guest's own disk (LXC rootfs; VMs only with the QEMU guest agent) that marks it Degraded (default 90). */
+	disk_warn?: number;
+}
 export type MonitorConfig =
 	| HttpConfig | TcpConfig | DnsConfig | HeartbeatConfig | DomainConfig
-	| SystemMonitorConfig | ContainerMonitorConfig | Record<string, never>;
+	| SystemMonitorConfig | ContainerMonitorConfig | GuestMonitorConfig | Record<string, never>;
 
 export interface Monitor {
 	id: string;

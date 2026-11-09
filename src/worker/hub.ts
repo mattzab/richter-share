@@ -7,7 +7,7 @@ import { notify } from "./notify";
 import { buildPublicPage, pageFor, pageGraceMs, pageSystemStatus, type PageSource } from "./public-page";
 import { seedOnce } from "./seed";
 import type { CheckResult } from "./monitors/checks";
-import { ACTIVE_COST, formatDuration, latestContainers, RANK, runCheck, systemOf, utcDay, type MonitorRow } from "./monitors/engine";
+import { ACTIVE_COST, formatDuration, latestContainers, latestPve, RANK, runCheck, systemOf, utcDay, type MonitorRow } from "./monitors/engine";
 import { addLatency, DAY, decodeBucket, encodeBucket, HOUR, hourOf, LAT_SLOT_MS, type LatSlot } from "./monitors/history";
 import { toMaintenance, type MaintenanceRow } from "./monitors/maintenance";
 import { nextState } from "./monitors/state";
@@ -661,7 +661,16 @@ export class Hub extends DurableObject<Env> {
 				const sys = systemOf(m);
 				return maint.monitors.has(m.id) || (m.parent_id != null && maint.monitors.has(m.parent_id)) || (sys != null && maint.systems.has(sys));
 			};
-			const deps = { system: (id: string) => sysMap.get(id) ?? null, containers: (id: string) => latestContainers(this.env, id) };
+			// One snapshot read per Proxmox host per tick, shared by all of its guest monitors.
+			const pveCache = new Map<string, ReturnType<typeof latestPve>>();
+			const deps = {
+				system: (id: string) => sysMap.get(id) ?? null,
+				containers: (id: string) => latestContainers(this.env, id),
+				pve: (id: string) => {
+					if (!pveCache.has(id)) pveCache.set(id, latestPve(this.env, id));
+					return pveCache.get(id)!;
+				},
+			};
 			let ran = 0;
 			const worker = async () => {
 				for (let m = queue.shift(); m; m = queue.shift()) {

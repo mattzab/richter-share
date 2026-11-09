@@ -7,6 +7,7 @@ import type {
 	Role,
 	NotificationLogEntry,
 	PackageSnapshot,
+	PveSnapshot,
 	ServicesSnapshot,
 	SystemdService,
 	Announcement,
@@ -76,6 +77,7 @@ const systems: SystemRecord[] = [
 	mkSystem("db-primary", "up", ["prod", "db"], { h: "db-primary", k: "6.1.0-25-amd64", c: 8, t: 16, m: "Intel Xeon E-2388G", u: 5_402_000, os: 0 }),
 	mkSystem("gpu-box", "up", ["lab"], { h: "gpu-box", k: "6.10.11-arch1-1", c: 16, t: 32, m: "AMD Ryzen 9 7950X", u: 302_400, os: 0 }),
 	mkSystem("mac-mini", "down", ["lab"], { h: "mac-mini.local", k: "24.1.0", c: 8, t: 8, m: "Apple M2", u: 0, os: 1 }),
+	mkSystem("pve02", "up", ["proxmox"], { h: "pve02", k: "6.8.12-9-pve", c: 16, t: 32, m: "AMD EPYC 7302P 16-Core", u: 3_100_000, os: 0 }),
 	mkSystem("backup-nas", "paused", ["storage"], { h: "nas", k: "14.1-RELEASE", c: 4, t: 4, m: "Intel Celeron N5105", u: 9_000_000, os: 3 }),
 ];
 
@@ -84,7 +86,8 @@ const profiles: Record<string, SysProfile> = {
 	[systems[1].id]: { cpuBase: 55, memTotal: 64 * GB, memBase: 0.78, disk: 2000 * GB, diskUsed: 0.91, cores: 16, containers: ["postgres", "pgbouncer"], temps: ["coretemp_package", "coretemp_core0", "coretemp_core1", "nvme0"], efs: true },
 	[systems[2].id]: { cpuBase: 72, memTotal: 128 * GB, memBase: 0.4, disk: 4000 * GB, diskUsed: 0.35, cores: 32, gpu: true, temps: ["k10temp_tctl", "amdgpu_edge", "nvme0", "nvme1"], fans: true, containers: ["ollama", "jupyter"] },
 	[systems[3].id]: { cpuBase: 12, memTotal: 16 * GB, memBase: 0.6, disk: 512 * GB, diskUsed: 0.5, cores: 8, temps: [] },
-	[systems[4].id]: { cpuBase: 6, memTotal: 16 * GB, memBase: 0.3, disk: 16000 * GB, diskUsed: 0.7, cores: 4, temps: ["cpu"] },
+	[systems[4].id]: { cpuBase: 18, memTotal: 128 * GB, memBase: 0.45, disk: 94 * GB, diskUsed: 0.2, cores: 32, temps: ["k10temp_tctl", "nvme0"] },
+	[systems[5].id]: { cpuBase: 6, memTotal: 16 * GB, memBase: 0.3, disk: 16000 * GB, diskUsed: 0.7, cores: 4, temps: ["cpu"] },
 };
 
 function mkSystem(name: string, status: SystemRecord["status"], tags: string[], info: SystemRecord["info"]): SystemRecord {
@@ -247,6 +250,8 @@ const monitors: Monitor[] = [
 	baseMonitor({ name: "example.com A", type: "dns", config: { name: "example.com", record_type: "A", expected: ["93.184.215.14"] }, parent_id: grpInfra.id, last_latency_ms: 22, status: "degraded", max_latency_ms: 20, last_message: "slow response" }),
 	baseMonitor({ name: "web-01 server", type: "system", config: { system_id: systems[0].id }, parent_id: grpInfra.id, last_latency_ms: null, last_message: "agent connected" }),
 	baseMonitor({ name: "app container", type: "container", config: { system_id: systems[0].id, container_name: "app" }, last_latency_ms: null }),
+	baseMonitor({ name: "smtp-probe (LXC 212)", type: "guest", config: { system_id: systems[4].id, vmid: 212, guest_type: "lxc" }, tags: ["proxmox", "lxc", "pve02"], last_latency_ms: null, last_message: "running · up 12 d 4 h · mem 38% · disk 14%" }),
+	baseMonitor({ name: "web (VM 101)", type: "guest", config: { system_id: systems[4].id, vmid: 101, guest_type: "qemu" }, tags: ["proxmox", "vm", "pve02"], last_latency_ms: null, status: "down", last_message: "Stopped (set to start on boot)" }),
 	baseMonitor({
 		name: "Nightly backup",
 		type: "heartbeat",
@@ -612,6 +617,27 @@ on("GET", `${A}/systems/:id/packages`, (m): PackageSnapshot => {
 					{ n: "sosreport", c: "4.10.2-0ubuntu0~24.04.1", a: "4.10.3-0ubuntu0~24.04.1" },
 				]
 			: [],
+	};
+});
+on("GET", `${A}/systems/:id/pve`, (m): PveSnapshot | null => {
+	if (find(systems, m[1]).id !== systems[4].id) return null;
+	const G = 1024 ** 3;
+	return {
+		at: now() - 25_000,
+		node: "pve02",
+		pve_version: "8.4.1",
+		guests: [
+			{ vmid: 101, type: "qemu", name: "web", node: "pve02", status: "stopped", onboot: true, template: false, maxmem: 4 * G, maxdisk: 32 * G },
+			{ vmid: 102, type: "qemu", name: "win11-lab", node: "pve02", status: "stopped", onboot: false, template: false, maxmem: 8 * G, maxdisk: 64 * G },
+			{ vmid: 105, type: "qemu", name: "homeassistant", node: "pve02", status: "running", onboot: true, template: false, cpu: 0.04, maxcpu: 2, mem: 2.6 * G, maxmem: 4 * G, disk: 9 * G, maxdisk: 32 * G, uptime: 1_050_000 },
+			{ vmid: 212, type: "lxc", name: "smtp-probe", node: "pve02", status: "running", onboot: true, template: false, cpu: 0.002, maxcpu: 1, mem: 0.19 * G, maxmem: 0.5 * G, disk: 1.1 * G, maxdisk: 8 * G, uptime: 1_051_200 },
+			{ vmid: 213, type: "lxc", name: "unifi", node: "pve02", status: "running", onboot: true, template: false, lock: "backup", cpu: 0.11, maxcpu: 2, mem: 1.9 * G, maxmem: 2 * G, disk: 7.4 * G, maxdisk: 16 * G, uptime: 86_000 },
+			{ vmid: 9000, type: "qemu", name: "debian-12-tpl", node: "pve02", status: "stopped", onboot: false, template: true },
+		],
+		storages: [
+			{ storage: "local", node: "pve02", type: "dir", status: "available", disk: 18 * G, maxdisk: 94 * G },
+			{ storage: "local-zfs", node: "pve02", type: "zfspool", status: "available", disk: 410 * G, maxdisk: 860 * G },
+		],
 	};
 });
 on("GET", `${A}/systems/:id/services`, (m): ServicesSnapshot => {

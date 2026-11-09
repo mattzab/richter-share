@@ -124,5 +124,13 @@ service beszel-agent restart
 rm -f /tmp/install-agent.sh
 RICHTER`;
 
-	return { hub_url: hub, token, key, compose, docker_run: dockerRun, binary, brew, windows, freebsd };
+	// Proxmox VE node, as root (PVE has no sudo by default): the Linux agent for the host itself,
+	// then the richter-pve companion, which pushes the node's LXC containers and VMs every minute
+	// so Richter can create a monitor per guest. Both are safe to re-run.
+	const proxmox = `${binary.replace(/sudo /g, "").replace(/\)$/, "")}
+curl -fsSL ${hub}/pve/richter-pve.sh -o /tmp/richter-pve.sh
+bash /tmp/richter-pve.sh install "${hub}" "${token}"
+rm -f /tmp/richter-pve.sh)`;
+
+	return { hub_url: hub, token, key, compose, docker_run: dockerRun, binary, brew, windows, freebsd, proxmox };
 }
