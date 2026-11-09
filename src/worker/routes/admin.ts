@@ -438,7 +438,7 @@ const monitorSchema = z.object({
 	sort: z.number().int().optional(),
 });
 
-function validateConfig(type: string, cfg: Record<string, unknown>): Record<string, unknown> {
+function validateConfig(type: string, cfg: Record<string, unknown>, env?: Env): Record<string, unknown> {
 	const req = (k: string) => {
 		if (cfg[k] === undefined || cfg[k] === "") throw new HttpError(400, `config.${k} is required`, `config.${k}`);
 	};
@@ -457,7 +457,10 @@ function validateConfig(type: string, cfg: Record<string, unknown>): Record<stri
 			req("port");
 			cfg.port = Number(cfg.port);
 			if (!(Number(cfg.port) > 0 && Number(cfg.port) < 65536)) throw new HttpError(400, "config.port must be 1-65535", "config.port");
-			if (cfg.port === 25) throw new HttpError(400, "Cloudflare Workers cannot connect to port 25", "config.port");
+			cfg.via_probe = cfg.via_probe === true;
+			if (cfg.via_probe && env && !env.PROBE_URL) throw new HttpError(400, "No probe configured: set probeUrl in richter.config.json and redeploy", "config.via_probe");
+			if (cfg.port === 25 && !cfg.via_probe) throw new HttpError(400, "Cloudflare Workers cannot connect to port 25; check it via the probe", "config.port");
+			if (cfg.expect_banner !== undefined) cfg.expect_banner = String(cfg.expect_banner).slice(0, 100) || undefined;
 			break;
 		case "dns":
 			req("name");
@@ -532,7 +535,7 @@ async function saveNotifications(env: Env, monitorId: string, ids: string[] | un
 
 admin.post("/monitors", async (c) => {
 	const body = monitorSchema.parse(await c.req.json());
-	const cfg = validateConfig(body.type, body.config ?? {});
+	const cfg = validateConfig(body.type, body.config ?? {}, c.env);
 	const id = newId();
 	const now = Date.now();
 	const interval = body.interval_s ?? (body.type === "domain" ? 86400 : 60);
@@ -571,7 +574,7 @@ admin.post("/monitors", async (c) => {
 
 admin.post("/monitors/test", async (c) => {
 	const body = monitorSchema.parse(await c.req.json());
-	const cfg = validateConfig(body.type, body.config ?? {});
+	const cfg = validateConfig(body.type, body.config ?? {}, c.env);
 	const now = Date.now();
 	const raw = await runCheck(c.env, { id: "test", type: body.type, config: JSON.stringify(cfg), timeout_ms: body.timeout_ms ?? 10000, last_ping_at: null, run_started_at: null, created_at: now }, now);
 	if (!raw) return c.json({ ok: true, status: "pending", latency_ms: null, message: body.type === "group" ? "Groups take the worst status of their members" : "Waiting for data" });
@@ -591,7 +594,7 @@ admin.patch("/monitors/:id", async (c) => {
 		sets.push(`${col} = ?`);
 		vals.push(v);
 	};
-	if (body.config) set("config", JSON.stringify(validateConfig(body.type ?? row.type, body.config)));
+	if (body.config) set("config", JSON.stringify(validateConfig(body.type ?? row.type, body.config, c.env)));
 	for (const k of ["name", "parent_id", "interval_s", "retries", "retry_interval_s", "timeout_ms", "max_latency_ms", "upside_down", "resend_every", "paused", "description", "sort"] as const) {
 		if (body[k] !== undefined) set(k, body[k]);
 	}

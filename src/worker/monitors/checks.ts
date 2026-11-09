@@ -137,6 +137,32 @@ export async function checkTcp(cfg: TcpConfig, timeoutMs: number): Promise<Check
 	}
 }
 
+/**
+ * TCP check run by the external probe (probe/server.mjs). Workers can't open port 25 or reach private
+ * networks, so the probe connects for us and reports back over HTTPS.
+ */
+export async function checkTcpViaProbe(cfg: TcpConfig, timeoutMs: number, probeUrl: string | undefined, token: string | undefined): Promise<CheckResult> {
+	if (!probeUrl) return { ok: false, latency_ms: null, message: "No probe configured (set probeUrl and redeploy)" };
+	const url = new URL("/tcp", probeUrl);
+	url.searchParams.set("host", cfg.host);
+	url.searchParams.set("port", String(cfg.port));
+	url.searchParams.set("timeout_ms", String(timeoutMs));
+	if (cfg.expect_banner) url.searchParams.set("expect", cfg.expect_banner);
+	// Give the probe its own timeout plus a little for the round trip.
+	const dl = deadline(timeoutMs + 5000);
+	try {
+		const res = await fetch(url, { headers: token ? { authorization: `Bearer ${token}` } : {}, signal: dl.signal });
+		if (!res.ok) return { ok: false, latency_ms: null, message: `Probe HTTP ${res.status}` };
+		const j = (await res.json()) as { ok?: boolean; latency_ms?: number | null; message?: string };
+		return { ok: j.ok === true, latency_ms: j.ok ? (j.latency_ms ?? null) : null, message: `${j.message ?? ""} (via probe)`.trim() };
+	} catch (e) {
+		const err = e as Error;
+		return { ok: false, latency_ms: null, message: `Probe unreachable: ${err.name === "TimeoutError" ? "timeout" : err.message}` };
+	} finally {
+		dl.clear();
+	}
+}
+
 const DNS_STATUS: Record<number, string> = { 1: "FORMERR", 2: "SERVFAIL", 3: "NXDOMAIN", 4: "NOTIMP", 5: "REFUSED" };
 const DNS_TYPES: Record<string, number> = { A: 1, NS: 2, CNAME: 5, MX: 15, TXT: 16, AAAA: 28, CAA: 257 };
 

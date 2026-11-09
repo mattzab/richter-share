@@ -50,7 +50,7 @@ These are Kuma's most-used features that neither FlareWatch nor Beszel already c
 11. **Clone and pause/resume a monitor.**
 12. **Container monitor.** Kuma needs a Docker socket for this; Richter gets it free from the Beszel agent's container list.
 
-Skipped because Workers can't do them: ICMP ping; game-server, MQTT, and database protocol monitors; Kuma's own TLS-expiry check (a Worker can't read the peer certificate, so it would need an external probe, as in FlareWatch). Port 25 is also blocked.
+Skipped because Workers can't do them: ICMP ping; game-server, MQTT, and database protocol monitors; Kuma's own TLS-expiry check (a Worker can't read the peer certificate, so it would need an external probe, as in FlareWatch). Port 25 is also blocked; TCP monitors can opt into a small self-hosted probe (`probe/`) that connects on the Worker's behalf, which also covers private hosts. The probe is optional and stateless: Richter keeps all scheduling, state and alerting.
 
 ## Hostnames
 

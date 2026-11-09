@@ -191,7 +191,14 @@ export interface HttpConfig {
 	json_expected?: string;
 	follow_redirects?: boolean;
 }
-export interface TcpConfig { host: string; port: number }
+export interface TcpConfig {
+	host: string;
+	port: number;
+	/** Run the check from the external probe (PROBE_URL) instead of the Worker: for port 25 and hosts Workers can't reach. */
+	via_probe?: boolean;
+	/** Probe only: the server's first line must start with this, e.g. "220" for SMTP. */
+	expect_banner?: string;
+}
 export interface DnsConfig { name: string; record_type?: string; expected?: string[]; resolver?: string }
 export interface HeartbeatConfig { period_s: number; grace_s: number }
 export interface DomainConfig { domain: string; warn_days?: number }

@@ -22,7 +22,7 @@ Richter is built to sit comfortably inside the Workers Free plan for a homelab (
 - Public pages are edge-cached.
 - Watch **Workers requests**, **Durable Object requests/duration** and **D1 rows written** in the Cloudflare dashboard as you add systems. `SUBREQUEST_BUDGET` (default 40) caps outbound checks per cron run so you stay under the free plan's 50-subrequest limit.
 
-Workers can't do ICMP ping, raw TLS-expiry checks or port 25; see `docs/DECISIONS.md`.
+Workers can't do ICMP ping, raw TLS-expiry checks or port 25; see `docs/DECISIONS.md`. For port 25 (SMTP) and hosts on private networks, TCP monitors can run through an optional self-hosted probe: [`probe/README.md`](probe/README.md).
 
 ## Requirements
 
@@ -75,6 +75,16 @@ In the dashboard, open **Systems → Add system** and run the install command it
 
 Create a **Heartbeat** monitor and have your job call its ping URL, `https://<publicHost>/ping/<token>` (`/start`, `/fail` or `/<exit code>` suffixes work too, as does Uptime Kuma's `?status=up&msg=&ping=`). Treat the token like a password.
 
+## Migrating from Uptime Robot
+
+`scripts/uptimerobot-import.py` turns your Uptime Robot monitors into a backup file you can load with **Settings → Import**:
+
+```sh
+python3 scripts/uptimerobot-import.py --api-key "$UPTIMEROBOT_API_KEY" --ntfy-topic richter --ntfy-server https://ntfy.example.com [--probe]
+```
+
+It writes `richter-import.json` and `migration-report.md`, which lists how each monitor was mapped. HTTP and keyword monitors become HTTP checks and port monitors become TCP checks. Ping monitors are imported paused, because Workers can't make those checks. Port 25 monitors are paused too, unless you pass `--probe`, which runs them through the [TCP probe](probe/README.md) instead. Heartbeat monitors get new ping URLs, so you'll need to point your jobs at them. Import only adds monitors and never deletes any. Keep both output files out of git, because they can contain an ntfy token.
+
 ## Configuration
 
 `cloudflare.config.ts` reads `richter.config.json`; a `RICHTER_*` environment variable overrides each key.
@@ -89,12 +99,14 @@ Create a **Heartbeat** monitor and have your job call its ping URL, `https://<pu
 | `ownerEmail` | `RICHTER_OWNER_EMAIL` | `OWNER_EMAIL` | Always has Full access; can't be removed or demoted |
 | `accessAppId` | `RICHTER_ACCESS_APP_ID` | `ACCESS_APP_ID` | Optional, for Settings → Access |
 | `subrequestBudget` | `RICHTER_SUBREQUEST_BUDGET` | `SUBREQUEST_BUDGET` | Max outbound checks per cron run (default 40) |
+| `probeUrl` | `RICHTER_PROBE_URL` | `PROBE_URL` | Optional TCP probe for port 25 / private hosts ([`probe/`](probe/README.md)) |
 
 Secrets (Worker secrets, never in the config):
 
 | Secret | Purpose |
 | --- | --- |
 | `CF_ACCESS_API_TOKEN` | Optional. Access: Apps and Policies Edit, for managing dashboard users |
+| `PROBE_TOKEN` | Optional. Bearer token for the TCP probe (`probeUrl`) |
 
 Notification channel credentials (webhook URLs, bot tokens) are entered in the dashboard and stored in D1; Read-only users never see them.
 

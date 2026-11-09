@@ -71,6 +71,8 @@ interface FormState {
 	// tcp
 	host: string;
 	port: string;
+	via_probe: boolean;
+	expect_banner: string;
 	// dns
 	dns_name: string;
 	record_type: string;
@@ -113,6 +115,8 @@ const EMPTY: FormState = {
 	follow_redirects: true,
 	host: "",
 	port: "",
+	via_probe: false,
+	expect_banner: "",
 	dns_name: "",
 	record_type: "A",
 	expected: "",
@@ -157,6 +161,8 @@ function fromMonitor(m: Monitor): FormState {
 		follow_redirects: c.follow_redirects !== false,
 		host: s("host"),
 		port: s("port"),
+		via_probe: c.via_probe === true,
+		expect_banner: s("expect_banner"),
 		dns_name: m.type === "dns" ? s("name") : "",
 		record_type: s("record_type", "A"),
 		expected: ((c.expected as string[]) ?? []).join(", "),
@@ -189,7 +195,7 @@ function validate(f: FormState): Errors {
 			if (!f.host.trim()) e.host = "Required";
 			const p = Number(f.port);
 			if (!Number.isInteger(p) || p < 1 || p > 65535) e.port = "Port must be 1–65535";
-			else if (p === 25) e.port = "Port 25 is blocked for outbound connections on Cloudflare Workers";
+			else if (p === 25 && !f.via_probe) e.port = "Workers can't connect to port 25; turn on \"Check via probe\"";
 			break;
 		}
 		case "dns":
@@ -239,7 +245,7 @@ function toInput(f: FormState): MonitorInput {
 			break;
 		}
 		case "tcp":
-			config = { host: f.host.trim(), port: Number(f.port) };
+			config = { host: f.host.trim(), port: Number(f.port), ...(f.via_probe ? { via_probe: true, ...(f.expect_banner.trim() ? { expect_banner: f.expect_banner.trim() } : {}) } : {}) };
 			break;
 		case "dns":
 			config = { name: f.dns_name.trim(), record_type: f.record_type, resolver: f.resolver.trim() || undefined, ...(f.expected.trim() ? { expected: splitList(f.expected) } : {}) };
@@ -459,6 +465,19 @@ export function MonitorForm({ id }: { id?: string }) {
 							<Field label="Port" error={errors.port}>
 								<Input type="number" value={form.port} onChange={txt("port")} placeholder="443" />
 							</Field>
+							<div className="sm:col-span-2">
+								<CheckRow
+									label="Check via probe"
+									description="Connect from your external probe instead of Cloudflare. Use it for port 25 and hosts Workers can't reach."
+									checked={form.via_probe}
+									onCheckedChange={(v) => set("via_probe", v)}
+								/>
+							</div>
+							{form.via_probe && (
+								<Field label="Expected banner (optional)" className="sm:col-span-2">
+									<Input value={form.expect_banner} onChange={txt("expect_banner")} placeholder="220 (SMTP greeting)" />
+								</Field>
+							)}
 						</div>
 					)}
 

@@ -6,5 +6,6 @@
 	"accessAud": "aud-tag-of-the-dashboard-access-application",
 	"ownerEmail": "you@example.com",
 	"accessAppId": "",
-	"subrequestBudget": "40"
+	"subrequestBudget": "40",
+	"probeUrl": ""
 }

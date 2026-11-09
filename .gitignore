@@ -8,3 +8,5 @@ richter.config.json
 .dev.vars.*
 !.dev.vars.example
 .env
+richter-import.json
+migration-report.md

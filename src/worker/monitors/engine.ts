@@ -1,7 +1,7 @@
 import type { ContainerMonitorConfig, DnsConfig, DomainConfig, HeartbeatConfig, HttpConfig, MonitorStatus, MonitorType, SystemMonitorConfig, TcpConfig } from "../../shared/types";
 import { parseJson } from "../db";
 import type { Env } from "../env";
-import { checkDns, checkDomain, checkHttp, checkTcp, type CheckResult } from "./checks";
+import { checkDns, checkDomain, checkHttp, checkTcp, checkTcpViaProbe, type CheckResult } from "./checks";
 
 export interface MonitorRow {
 	id: string;
@@ -70,7 +70,10 @@ export async function runCheck(
 		case "http":
 			return checkHttp(parseJson<HttpConfig>(m.config, { url: "" }), timeout);
 		case "tcp":
-			return checkTcp(parseJson<TcpConfig>(m.config, { host: "", port: 0 }), timeout);
+			{
+			const cfg = parseJson<TcpConfig>(m.config, { host: "", port: 0 });
+			return cfg.via_probe ? checkTcpViaProbe(cfg, timeout, env.PROBE_URL, env.PROBE_TOKEN) : checkTcp(cfg, timeout);
+		}
 		case "dns":
 			return checkDns(parseJson<DnsConfig>(m.config, { name: "" }), timeout);
 		case "domain":

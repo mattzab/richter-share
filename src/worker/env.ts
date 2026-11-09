@@ -18,4 +18,8 @@ export interface Env {
 	ACCESS_APP_ID: string;
 	/** Secret: API token with Access: Apps and Policies Edit (optional; user management needs it). */
 	CF_ACCESS_API_TOKEN?: string;
+	/** Optional external TCP probe (see probe/README.md), e.g. https://probe.example.com. Empty = disabled. */
+	PROBE_URL: string;
+	/** Secret: bearer token the probe expects (optional, but set it). */
+	PROBE_TOKEN?: string;
 }

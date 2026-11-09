@@ -17,6 +17,7 @@ type RichterConfig = {
 	ownerEmail: string;
 	accessAppId?: string;
 	subrequestBudget?: string;
+	probeUrl?: string;
 };
 
 const FILE = new URL("./richter.config.json", import.meta.url);
@@ -31,6 +32,7 @@ const cfg: RichterConfig = {
 	ownerEmail: env("RICHTER_OWNER_EMAIL") ?? file.ownerEmail ?? "",
 	accessAppId: env("RICHTER_ACCESS_APP_ID") ?? file.accessAppId ?? "",
 	subrequestBudget: env("RICHTER_SUBREQUEST_BUDGET") ?? file.subrequestBudget ?? "40",
+	probeUrl: env("RICHTER_PROBE_URL") ?? file.probeUrl ?? "",
 };
 if (!existsSync(FILE) && !env("RICHTER_ACCOUNT_ID")) {
 	console.warn("[richter] No richter.config.json found; using example.com placeholders (fine for `cf dev`, not for deploy).");
@@ -69,6 +71,8 @@ export default defineConfig({
 			// Optional: lets Settings → Access manage the app's "Richter users (managed)" policy.
 			ACCESS_APP_ID: bindings.text(cfg.accessAppId ?? ""),
 			// CF_ACCESS_API_TOKEN is a Worker secret (Access: Apps and Policies Edit), optional.
+			// Optional external TCP probe for port 25 / private hosts (probe/README.md); PROBE_TOKEN is a Worker secret.
+			PROBE_URL: bindings.text(cfg.probeUrl ?? ""),
 		},
 		exports: {
 			AgentConnection: exports.durableObject({ storage: "sqlite" }),
